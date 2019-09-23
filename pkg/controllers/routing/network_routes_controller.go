@@ -100,7 +100,7 @@ type NetworkRoutingController struct {
 	bgpPort                        uint16
 	bgpRRClient                    bool
 	bgpRRServer                    bool
-	bgpClusterID                   uint32
+	bgpClusterID                   string
 	cniConfFile                    string
 	disableSrcDstCheck             bool
 	initSrcDstCheckDone            bool
@@ -587,7 +587,7 @@ func (nrc *NetworkRoutingController) syncNodeIPSets() error {
 			continue
 		}
 		currentPodCidrs = append(currentPodCidrs, podCIDR)
-		nodeIP, err := utils.GetNodeIP(&node)
+		nodeIP, err := utils.GetNodeIP(node)
 		if err != nil {
 			return fmt.Errorf("Failed to find a node IP: %s", err)
 		}
