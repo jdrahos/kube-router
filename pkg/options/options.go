@@ -76,7 +76,7 @@ func NewKubeRouterConfig() *KubeRouterConfig {
 		BGPGracefulRestartDeferralTime: 360 * time.Second,
 		EnableOverlay:                  true,
 		OverlayType:                    "subnet",
-		KubeClientTimeout:  1 * time.Minute,
+		KubeClientTimeout:              1 * time.Minute,
 	}
 }
 

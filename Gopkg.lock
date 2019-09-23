@@ -1125,6 +1125,7 @@
     "github.com/osrg/gobgp/packet/bgp",
     "github.com/osrg/gobgp/server",
     "github.com/osrg/gobgp/table",
+    "github.com/pkg/errors",
     "github.com/prometheus/client_golang/prometheus",
     "github.com/prometheus/client_golang/prometheus/promhttp",
     "github.com/spf13/pflag",
