@@ -45,6 +45,7 @@ Usage of kube-router:
       --bgp-port uint16                               The port open for incoming BGP connections and to use for connecting with other BGP peers. (default 179)
       --cache-sync-timeout duration                   The timeout for cache synchronization (e.g. '5s', '1m'). Must be greater than 0. (default 1m0s)
       --cleanup-config                                Cleanup iptables rules, ipvs, ipset configuration and exit.
+      --client-timeout duration                       Timeout for kubernetes client calls (e.g. '5s', '1m', '2h22m'). Must be greater than 0. (default 1m0s)
       --cluster-asn uint                              ASN number under which cluster nodes will run iBGP.
       --cluster-cidr string                           CIDR range of pods in the cluster. It is used to identify traffic originating from and destinated to pods.
       --disable-source-dest-check                     Disable the source-dest-check attribute for AWS EC2 instances. When this option is false, it must be set some other way. (default true)
@@ -66,6 +67,8 @@ Usage of kube-router:
       --master string                                 The address of the Kubernetes API server (overrides any value in kubeconfig).
       --metrics-path string                           Prometheus metrics path (default "/metrics")
       --metrics-port uint16                           Prometheus metrics port, (Default 0, Disabled)
+      --node-default-weight uint16                    Default weight of a node, Default 1 (default 1)
+      --node-weight-annotation string                 Node annotation to determine the endpoint's weight based on the node it is running on. If no annotation is found the "node-default-weight" will be used. Default "kube-router.io/node.weight" (default "kube-router.io/node.weight")
       --nodeport-bindon-all-ip                        For service of NodePort type create IPVS service that listens on all IP's of the node.
       --nodes-full-mesh                               Each node in the cluster will setup BGP peering with rest of the nodes. (default true)
       --overlay-type string                           Possible values: subnet,full - When set to "subnet", the default, default "--enable-overlay=true" behavior is used. When set to "full", it changes "--enable-overlay=true" default behavior so that IP-in-IP tunneling is used for pod-to-pod networking across nodes regardless of the subnet the nodes are in. (default "subnet")
@@ -75,6 +78,7 @@ Usage of kube-router:
       --peer-router-multihop-ttl uint8                Enable eBGP multihop supports -- sets multihop-ttl. (Relevant only if ttl >= 2)
       --peer-router-passwords strings                 Password for authenticating against the BGP peer defined with "--peer-router-ips".
       --peer-router-ports uints                       The remote port of the external BGP to which all nodes will peer. If not set, default BGP port (179) will be used. (default [])
+      --pod-egress-ip-annotation string               Node annotation to determine the ip to use for pod egress. If no annotation is found on the node, the pod source ip will be masqueraded to the node ip if pod egress is enabled. (default "kube-router.io/pod.egress.ip")
       --router-id string                              BGP router-id. Must be specified in a ipv6 only cluster.
       --routes-sync-period duration                   The delay between route updates and advertisements (e.g. '5s', '1m', '2h22m'). Must be greater than 0. (default 5m0s)
       --run-firewall                                  Enables Network Policy -- sets up iptables to provide ingress firewall for pods. (default true)

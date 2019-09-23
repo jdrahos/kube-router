@@ -19,7 +19,7 @@ func (nrc *NetworkRoutingController) AddPolicies() error {
 		return nil
 	}
 
-	cidr, err := utils.GetPodCidrFromNodeSpec(nrc.clientset, nrc.hostnameOverride)
+	cidr, err := nrc.getPodCidr()
 	if err != nil {
 		return err
 	}
@@ -41,6 +41,12 @@ func (nrc *NetworkRoutingController) AddPolicies() error {
 	// creates prefix set to represent all the advertisable IP associated with the services
 	advIPPrefixList := make([]config.Prefix, 0)
 	advIps, _, _ := nrc.getAllVIPs()
+
+	//add pod egress ip to allow advertisements
+	if nrc.egressIP != nil {
+		advIps = append(advIps, nrc.egressIP.String())
+	}
+
 	for _, ip := range advIps {
 		advIPPrefixList = append(advIPPrefixList, config.Prefix{IpPrefix: ip + "/32"})
 	}

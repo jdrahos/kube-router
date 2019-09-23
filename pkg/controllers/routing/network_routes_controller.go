@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"k8s.io/api/core/v1"
 	"net"
 	"os"
 	"os/exec"
@@ -109,6 +110,7 @@ type NetworkRoutingController struct {
 	pathPrepend                    bool
 	localAddressList               []string
 	overrideNextHop                bool
+	egressIP                       net.IP
 
 	nodeLister cache.Indexer
 	svcLister  cache.Indexer
@@ -171,14 +173,14 @@ func (nrc *NetworkRoutingController) Run(healthChan chan<- *healthcheck.Controll
 	if nrc.enablePodEgress {
 		glog.V(1).Infoln("Enabling Pod egress.")
 
-		err = nrc.createPodEgressRule()
+		err = nrc.createPodEgressRules()
 		if err != nil {
 			glog.Errorf("Error enabling Pod egress: %s", err.Error())
 		}
 	} else {
 		glog.V(1).Infoln("Disabling Pod egress.")
 
-		err = nrc.deletePodEgressRule()
+		err = nrc.deletePodEgressRules()
 		if err != nil {
 			glog.Warningf("Error cleaning up Pod Egress related networking: %s", err)
 		}
@@ -281,6 +283,12 @@ func (nrc *NetworkRoutingController) Run(healthChan chan<- *healthcheck.Controll
 		nrc.advertiseVIPs(toAdvertise)
 		nrc.withdrawVIPs(toWithdraw)
 
+		//advertise external egress IP if there is one configured
+		if nrc.egressIP != nil {
+			glog.V(1).Infof("Performing periodic sync of pod egress IP")
+			nrc.bgpAdvertiseVIP(nrc.egressIP.String())
+		}
+
 		glog.V(1).Info("Performing periodic sync of pod CIDR routes")
 		err = nrc.advertisePodRoute()
 		if err != nil {
@@ -308,6 +316,9 @@ func (nrc *NetworkRoutingController) Run(healthChan chan<- *healthcheck.Controll
 			glog.Infof("Shutting down network routes controller")
 			return
 		case <-t.C:
+			if err == nil {
+				healthcheck.SendHeartBeat(healthChan, "NRC")
+			}
 		}
 	}
 }
@@ -362,11 +373,27 @@ func (nrc *NetworkRoutingController) watchBgpUpdates() {
 	}
 }
 
+func (nrc *NetworkRoutingController) getPodCidr() (string, error) {
+	cidr, err := utils.GetPodCidrFromNodeSpec(nrc.clientset, nrc.hostnameOverride)
+	if err != nil {
+		glog.Errorf("Failed to get pod cidr using api server, trying to parse cni config file: %s", err.Error())
+		cidrIP, err := utils.GetPodCidrFromCniSpec(nrc.cniConfFile)
+		if err != nil {
+			return "", err
+		} else {
+			glog.V(3).Infof("Found cidr in cni config file: %s", cidrIP.String())
+		}
+		cidr = cidrIP.String()
+	}
+
+	return cidr, nil
+}
+
 func (nrc *NetworkRoutingController) advertisePodRoute() error {
 	if nrc.MetricsEnabled {
 		metrics.ControllerBGPadvertisementsSent.Inc()
 	}
-	cidr, err := utils.GetPodCidrFromNodeSpec(nrc.clientset, nrc.hostnameOverride)
+	cidr, err := nrc.getPodCidr()
 	if err != nil {
 		return err
 	}
@@ -511,7 +538,7 @@ func (nrc *NetworkRoutingController) injectRoute(path *table.Path) error {
 // Cleanup performs the cleanup of configurations done
 func (nrc *NetworkRoutingController) Cleanup() {
 	// Pod egress cleanup
-	err := nrc.deletePodEgressRule()
+	err := nrc.deletePodEgressRules()
 	if err != nil {
 		glog.Warningf("Error deleting Pod egress iptables rule: %s", err.Error())
 	}
@@ -544,15 +571,13 @@ func (nrc *NetworkRoutingController) syncNodeIPSets() error {
 		}
 	}()
 	// Get the current list of the nodes from API server
-	nodes, err := nrc.clientset.CoreV1().Nodes().List(metav1.ListOptions{})
-	if err != nil {
-		return errors.New("Failed to list nodes from API server: " + err.Error())
-	}
+	var err error
+	nodes := nrc.getNodes()
 
 	// Collect active PodCIDR(s) and NodeIPs from nodes
 	currentPodCidrs := make([]string, 0)
 	currentNodeIPs := make([]string, 0)
-	for _, node := range nodes.Items {
+	for _, node := range nodes {
 		podCIDR := node.GetAnnotations()["kube-router.io/pod-cidr"]
 		if podCIDR == "" {
 			podCIDR = node.Spec.PodCIDR
@@ -600,6 +625,28 @@ func (nrc *NetworkRoutingController) syncNodeIPSets() error {
 	}
 
 	return nil
+}
+
+// getNodes tries to get the fresh set of nodes from apiserver. If it fails it will fall back to cache
+func (nrc *NetworkRoutingController) getNodes() []*v1.Node {
+	var nodeSlice []*v1.Node
+
+	// Get the current list of the nodes from API server
+	nodes, err := nrc.clientset.CoreV1().Nodes().List(metav1.ListOptions{})
+	if err != nil {
+		glog.Errorf("Failed to list nodes from API server, using cache: %s", err.Error())
+		for _, node := range nrc.nodeLister.List() {
+			nodeSlice = append(nodeSlice, node.(*v1.Node))
+		}
+	} else {
+		glog.V(3).Info("Got list of nodes for setting up IP sets from API server")
+		for _, node := range nodes.Items {
+			n := node
+			nodeSlice = append(nodeSlice, &n)
+		}
+	}
+
+	return nodeSlice
 }
 
 func (nrc *NetworkRoutingController) newIptablesCmdHandler() (*iptables.IPTables, error) {
@@ -685,19 +732,23 @@ func (nrc *NetworkRoutingController) startBgpServer() error {
 
 	if clusterid, ok := node.ObjectMeta.Annotations[rrServerAnnotation]; ok {
 		glog.Infof("Found rr.server for the node to be %s from the node annotation", clusterid)
-		clusterID, err := strconv.ParseUint(clusterid, 0, 32)
+		_, err := strconv.ParseUint(clusterid, 0, 32)
 		if err != nil {
-			return errors.New("Failed to parse rr.server clusterId number specified for the the node")
+			if ip := net.ParseIP(clusterid).To4(); ip != nil {
+				return errors.New("Failed to parse rr.server clusterId specified for the the node")
+			}
 		}
-		nrc.bgpClusterID = uint32(clusterID)
+		nrc.bgpClusterID = clusterid
 		nrc.bgpRRServer = true
 	} else if clusterid, ok := node.ObjectMeta.Annotations[rrClientAnnotation]; ok {
 		glog.Infof("Found rr.client for the node to be %s from the node annotation", clusterid)
-		clusterID, err := strconv.ParseUint(clusterid, 0, 32)
+		_, err := strconv.ParseUint(clusterid, 0, 32)
 		if err != nil {
-			return errors.New("Failed to parse rr.client clusterId number specified for the the node")
+			if ip := net.ParseIP(clusterid).To4(); ip != nil {
+				return errors.New("Failed to parse rr.client clusterId specified for the the node")
+			}
 		}
-		nrc.bgpClusterID = uint32(clusterID)
+		nrc.bgpClusterID = clusterid
 		nrc.bgpRRClient = true
 	}
 
@@ -926,6 +977,8 @@ func NewNetworkRoutingController(clientset kubernetes.Interface,
 
 	if kubeRouterConfig.EnablePodEgress || len(nrc.clusterCIDR) != 0 {
 		nrc.enablePodEgress = true
+		nrc.egressIP = utils.GetNodeEgressIP(node, kubeRouterConfig.EgressIPAnnotation)
+		nrc.preparePodEgress(node, kubeRouterConfig)
 	}
 
 	if kubeRouterConfig.ClusterAsn != 0 {

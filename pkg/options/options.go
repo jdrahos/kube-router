@@ -24,6 +24,7 @@ type KubeRouterConfig struct {
 	ClusterAsn                     uint
 	ClusterCIDR                    string
 	DisableSrcDstCheck             bool
+	EgressIPAnnotation             string
 	EnableCNI                      bool
 	EnableiBGP                     bool
 	EnableOverlay                  bool
@@ -40,12 +41,15 @@ type KubeRouterConfig struct {
 	IpvsGracefulPeriod             time.Duration
 	IpvsGracefulTermination        bool
 	Kubeconfig                     string
+	KubeClientTimeout              time.Duration
 	MasqueradeAll                  bool
 	Master                         string
 	MetricsEnabled                 bool
 	MetricsPath                    string
 	MetricsPort                    uint16
+	NodeDefaultWeight              uint16
 	NodePortBindOnAllIp            bool
+	NodeWeightAnnotation           string
 	OverrideNextHop                bool
 	PeerASNs                       []uint
 	PeerMultihopTtl                uint8
@@ -72,6 +76,7 @@ func NewKubeRouterConfig() *KubeRouterConfig {
 		BGPGracefulRestartDeferralTime: 360 * time.Second,
 		EnableOverlay:                  true,
 		OverlayType:                    "subnet",
+		KubeClientTimeout:  1 * time.Minute,
 	}
 }
 
@@ -167,4 +172,13 @@ func (s *KubeRouterConfig) AddFlags(fs *pflag.FlagSet) {
 	fs.BoolVar(&s.OverrideNextHop, "override-nexthop", false, "Override the next-hop in bgp routes sent to peers with the local ip.")
 	fs.BoolVar(&s.DisableSrcDstCheck, "disable-source-dest-check", true,
 		"Disable the source-dest-check attribute for AWS EC2 instances. When this option is false, it must be set some other way.")
+	fs.Uint16Var(&s.NodeDefaultWeight, "node-default-weight", 1, "Default weight of a node, Default 1")
+	fs.StringVar(&s.NodeWeightAnnotation, "node-weight-annotation", "kube-router.io/node.weight",
+		"Node annotation to determine the endpoint's weight based on the node it is running on. "+
+			"If no annotation is found the \"node-default-weight\" will be used. Default \"kube-router.io/node.weight\"")
+	fs.StringVar(&s.EgressIPAnnotation, "pod-egress-ip-annotation", "kube-router.io/pod.egress.ip",
+		"Node annotation to determine the ip to use for pod egress. "+
+			"If no annotation is found on the node, the pod source ip will be masqueraded to the node ip if pod egress is enabled.")
+	fs.DurationVar(&s.KubeClientTimeout, "client-timeout", s.KubeClientTimeout,
+		"Timeout for kubernetes client calls (e.g. '5s', '1m', '2h22m'). Must be greater than 0.")
 }
