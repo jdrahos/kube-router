@@ -734,8 +734,8 @@ func (nrc *NetworkRoutingController) startBgpServer() error {
 		glog.Infof("Found rr.server for the node to be %s from the node annotation", clusterid)
 		_, err := strconv.ParseUint(clusterid, 0, 32)
 		if err != nil {
-			if ip := net.ParseIP(clusterid).To4(); ip != nil {
-				return errors.New("Failed to parse rr.server clusterId specified for the the node")
+			if ip := net.ParseIP(clusterid).To4(); ip == nil {
+				return errors.New("Failed to parse rr.server clusterId specified for the node")
 			}
 		}
 		nrc.bgpClusterID = clusterid
@@ -744,8 +744,8 @@ func (nrc *NetworkRoutingController) startBgpServer() error {
 		glog.Infof("Found rr.client for the node to be %s from the node annotation", clusterid)
 		_, err := strconv.ParseUint(clusterid, 0, 32)
 		if err != nil {
-			if ip := net.ParseIP(clusterid).To4(); ip != nil {
-				return errors.New("Failed to parse rr.client clusterId specified for the the node")
+			if ip := net.ParseIP(clusterid).To4(); ip == nil {
+				return errors.New("Failed to parse rr.client clusterId specified for the node")
 			}
 		}
 		nrc.bgpClusterID = clusterid
